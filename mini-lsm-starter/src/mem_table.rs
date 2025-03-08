@@ -139,6 +139,12 @@ impl MemTable {
             .load(std::sync::atomic::Ordering::Relaxed)
     }
 
+    pub fn add_approximate_size(&self, entry_size: usize) -> usize {
+        self.approximate_size
+            .fetch_add(entry_size, std::sync::atomic::Ordering::Relaxed)
+            + entry_size
+    }
+
     /// Only use this function when closing the database
     pub fn is_empty(&self) -> bool {
         self.map.is_empty()
