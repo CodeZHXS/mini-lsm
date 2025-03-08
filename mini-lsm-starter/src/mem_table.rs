@@ -52,11 +52,11 @@ pub(crate) fn map_bound(bound: Bound<&[u8]>) -> Bound<Bytes> {
 
 impl MemTable {
     /// Create a new mem-table.
-    pub fn create(_id: usize) -> Self {
+    pub fn create(id: usize) -> Self {
         Self {
             map: Arc::new(SkipMap::new()),
             wal: None,
-            id: _id,
+            id,
             approximate_size: Arc::new(AtomicUsize::new(0)),
         }
     }
@@ -88,8 +88,8 @@ impl MemTable {
     }
 
     /// Get a value by key.
-    pub fn get(&self, _key: &[u8]) -> Option<Bytes> {
-        let entry = self.map.get(_key);
+    pub fn get(&self, key: &[u8]) -> Option<Bytes> {
+        let entry = self.map.get(key);
         if entry.is_none() {
             None
         } else {
@@ -102,9 +102,9 @@ impl MemTable {
     /// In week 1, day 1, simply put the key-value pair into the skipmap.
     /// In week 2, day 6, also flush the data to WAL.
     /// In week 3, day 5, modify the function to use the batch API.
-    pub fn put(&self, _key: &[u8], _value: &[u8]) -> Result<()> {
+    pub fn put(&self, key: &[u8], value: &[u8]) -> Result<()> {
         self.map
-            .insert(Bytes::copy_from_slice(_key), Bytes::copy_from_slice(_value));
+            .insert(Bytes::copy_from_slice(key), Bytes::copy_from_slice(value));
         Ok(())
     }
 

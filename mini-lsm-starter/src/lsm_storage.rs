@@ -294,16 +294,17 @@ impl LsmStorageInner {
     }
 
     /// Get a key from the storage. In day 7, this can be further optimized by using a bloom filter.
-    pub fn get(&self, _key: &[u8]) -> Result<Option<Bytes>> {
+    pub fn get(&self, key: &[u8]) -> Result<Option<Bytes>> {
         let state = self.state.read();
-        if let Some(value) = state.memtable.get(_key) {
+        if let Some(value) = state.memtable.get(key) {
             if value.is_empty() {
                 return Ok(None);
             }
             return Ok(Some(value));
         }
+
         for t in &state.imm_memtables {
-            if let Some(value) = t.get(_key) {
+            if let Some(value) = t.get(key) {
                 if value.is_empty() {
                     return Ok(None);
                 }
@@ -324,22 +325,22 @@ impl LsmStorageInner {
 
     /// Put a key-value pair into the storage by writing into the current memtable.
     /// return new approximate size after put
-    fn put_impl(&self, _key: &[u8], _value: &[u8]) -> usize {
-        let entry_size = _key.len() + _value.len();
+    fn put_impl(&self, key: &[u8], value: &[u8]) -> usize {
+        let entry_size = key.len() + value.len();
         let state_read_guard = self.state.read();
-        let result = state_read_guard.memtable.put(_key, _value);
+        let result = state_read_guard.memtable.put(key, value);
         state_read_guard.memtable.add_approximate_size(entry_size) + entry_size
     }
 
     /// Put a key-value pair into the storage by writing into the current memtable.
-    pub fn put(&self, _key: &[u8], _value: &[u8]) -> Result<()> {
-        let new_approximate_size = self.put_impl(_key, _value);
+    pub fn put(&self, key: &[u8], value: &[u8]) -> Result<()> {
+        let new_approximate_size = self.put_impl(key, value);
         self.try_freeze_memtable(new_approximate_size)
     }
 
     /// Remove a key from the storage by writing an empty value.
-    pub fn delete(&self, _key: &[u8]) -> Result<()> {
-        let new_approximate_size = self.put_impl(_key, &[]);
+    pub fn delete(&self, key: &[u8]) -> Result<()> {
+        let new_approximate_size = self.put_impl(key, &[]);
         self.try_freeze_memtable(new_approximate_size)
     }
 
