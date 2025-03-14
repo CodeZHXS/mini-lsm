@@ -108,6 +108,14 @@ impl MemTable {
         Ok(())
     }
 
+    /// Put a key-value pair into the storage by writing into the current memtable.
+    /// return new approximate size after put
+    pub fn put_and_get_size(&self, key: &[u8], value: &[u8]) -> usize {
+        let _ = self.put(key, value);
+        let entry_size = key.len() + value.len();
+        self.add_approximate_size(entry_size)
+    }
+
     /// Implement this in week 3, day 5.
     pub fn put_batch(&self, _data: &[(KeySlice, &[u8])]) -> Result<()> {
         unimplemented!()
@@ -139,7 +147,7 @@ impl MemTable {
             .load(std::sync::atomic::Ordering::Relaxed)
     }
 
-    pub fn add_approximate_size(&self, entry_size: usize) -> usize {
+    fn add_approximate_size(&self, entry_size: usize) -> usize {
         self.approximate_size
             .fetch_add(entry_size, std::sync::atomic::Ordering::Relaxed)
             + entry_size

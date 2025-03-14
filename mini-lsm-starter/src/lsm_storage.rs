@@ -324,23 +324,14 @@ impl LsmStorageInner {
     }
 
     /// Put a key-value pair into the storage by writing into the current memtable.
-    /// return new approximate size after put
-    fn put_impl(&self, key: &[u8], value: &[u8]) -> usize {
-        let entry_size = key.len() + value.len();
-        let state_read_guard = self.state.read();
-        let result = state_read_guard.memtable.put(key, value);
-        state_read_guard.memtable.add_approximate_size(entry_size) + entry_size
-    }
-
-    /// Put a key-value pair into the storage by writing into the current memtable.
     pub fn put(&self, key: &[u8], value: &[u8]) -> Result<()> {
-        let new_approximate_size = self.put_impl(key, value);
+        let new_approximate_size = self.state.read().memtable.put_and_get_size(key, value);
         self.try_freeze_memtable(new_approximate_size)
     }
 
     /// Remove a key from the storage by writing an empty value.
     pub fn delete(&self, key: &[u8]) -> Result<()> {
-        let new_approximate_size = self.put_impl(key, &[]);
+        let new_approximate_size = self.state.read().memtable.put_and_get_size(key, &[]);
         self.try_freeze_memtable(new_approximate_size)
     }
 
@@ -381,6 +372,7 @@ impl LsmStorageInner {
         let mut snapshot = guard.as_ref().clone();
         let old_memtable = std::mem::replace(&mut snapshot.memtable, new_memtable);
         snapshot.imm_memtables.insert(0, old_memtable.clone());
+        // snapshot.imm_memtables.push(old_memtable.clone());
         *guard = Arc::new(snapshot);
         Ok(())
     }
