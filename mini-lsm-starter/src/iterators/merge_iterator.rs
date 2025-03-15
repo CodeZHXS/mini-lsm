@@ -16,7 +16,10 @@
 #![allow(dead_code)] // TODO(you): remove this lint after implementing this mod
 
 use std::cmp::{self};
+use std::collections::binary_heap::PeekMut;
 use std::collections::BinaryHeap;
+use std::mem::swap;
+use std::thread::current;
 
 use anyhow::Result;
 
@@ -59,7 +62,17 @@ pub struct MergeIterator<I: StorageIterator> {
 
 impl<I: StorageIterator> MergeIterator<I> {
     pub fn create(iters: Vec<Box<I>>) -> Self {
-        unimplemented!()
+        let mut heap = BinaryHeap::new();
+        for (idx, iter) in iters.into_iter().enumerate() {
+            if iter.is_valid() {
+                heap.push(HeapWrapper(idx, iter));
+            }
+        }
+        let current = heap.pop();
+        Self {
+            iters: heap,
+            current,
+        }
     }
 }
 
@@ -69,18 +82,44 @@ impl<I: 'static + for<'a> StorageIterator<KeyType<'a> = KeySlice<'a>>> StorageIt
     type KeyType<'a> = KeySlice<'a>;
 
     fn key(&self) -> KeySlice {
-        unimplemented!()
+        self.current.as_ref().unwrap().1.key()
     }
 
     fn value(&self) -> &[u8] {
-        unimplemented!()
+        self.current.as_ref().unwrap().1.value()
     }
 
     fn is_valid(&self) -> bool {
-        unimplemented!()
+        self.current.is_some()
     }
 
     fn next(&mut self) -> Result<()> {
-        unimplemented!()
+        let current = self.current.as_mut().unwrap();
+        while let Some(mut t) = self.iters.peek_mut() {
+            if t.1.key() == current.1.key() {
+                if let Err(e) = t.1.next() {
+                    PeekMut::pop(t);
+                    return Err(e);
+                }
+                if !t.1.is_valid() {
+                    PeekMut::pop(t);
+                }
+            } else {
+                break;
+            }
+        }
+        if let Err(e) = current.1.next() {
+            return Err(e);
+        }
+        if !current.1.is_valid() {
+            self.current = self.iters.pop();
+            return Ok(());
+        }
+        if let Some(mut t) = self.iters.peek_mut() {
+            if *current < *t {
+                swap(current, &mut t);
+            }
+        }
+        Ok(())
     }
 }
