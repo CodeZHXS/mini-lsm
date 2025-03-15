@@ -19,7 +19,6 @@ use std::cmp::{self};
 use std::collections::binary_heap::PeekMut;
 use std::collections::BinaryHeap;
 use std::mem::swap;
-use std::thread::current;
 
 use anyhow::Result;
 
@@ -108,9 +107,7 @@ impl<I: 'static + for<'a> StorageIterator<KeyType<'a> = KeySlice<'a>>> StorageIt
                 break;
             }
         }
-        if let Err(e) = current.1.next() {
-            return Err(e);
-        }
+        current.1.next()?;
         if !current.1.is_valid() {
             self.current = self.iters.pop();
             return Ok(());
