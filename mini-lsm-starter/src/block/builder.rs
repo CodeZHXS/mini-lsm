@@ -47,10 +47,6 @@ impl BlockBuilder {
     /// Adds a key-value pair to the block. Returns false when the block is full.
     #[must_use]
     pub fn add(&mut self, key: KeySlice, value: &[u8]) -> bool {
-        assert!(!key.is_empty());
-        assert!(key.len() <= std::u16::MAX as usize);
-        assert!(value.len() <= std::u16::MAX as usize);
-
         let key_len = key.len() as u16;
         let value_len = value.len() as u16;
 
