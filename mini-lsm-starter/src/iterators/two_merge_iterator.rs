@@ -15,7 +15,7 @@
 #![allow(unused_variables)] // TODO(you): remove this lint after implementing this mod
 #![allow(dead_code)] // TODO(you): remove this lint after implementing this mod
 
-use anyhow::Result;
+use anyhow::{Ok, Result};
 
 use super::StorageIterator;
 
@@ -25,6 +25,7 @@ pub struct TwoMergeIterator<A: StorageIterator, B: StorageIterator> {
     a: A,
     b: B,
     // Add fields as need
+    next_is_a: bool,
 }
 
 impl<
@@ -33,7 +34,20 @@ impl<
     > TwoMergeIterator<A, B>
 {
     pub fn create(a: A, b: B) -> Result<Self> {
-        unimplemented!()
+        let next_is_a = Self::choose_first(&a, &b);
+        Ok(Self { a, b, next_is_a })
+    }
+
+    fn choose_first(a: &A, b: &B) -> bool {
+        if !b.is_valid() {
+            return true;
+        }
+
+        if !a.is_valid() {
+            return false;
+        }
+
+        a.key() <= b.key()
     }
 }
 
@@ -45,18 +59,40 @@ impl<
     type KeyType<'a> = A::KeyType<'a>;
 
     fn key(&self) -> Self::KeyType<'_> {
-        unimplemented!()
+        match self.next_is_a {
+            true => self.a.key(),
+            false => self.b.key(),
+        }
     }
 
     fn value(&self) -> &[u8] {
-        unimplemented!()
+        match self.next_is_a {
+            true => self.a.value(),
+            false => self.b.value(),
+        }
     }
 
     fn is_valid(&self) -> bool {
-        unimplemented!()
+        match self.next_is_a {
+            true => self.a.is_valid(),
+            false => self.b.is_valid(),
+        }
     }
 
     fn next(&mut self) -> Result<()> {
-        unimplemented!()
+        match self.next_is_a {
+            true => {
+                if self.b.is_valid() && self.a.key() == self.b.key() {
+                    self.b.next()?;
+                }
+                self.a.next()?;
+            }
+            false => {
+                // no need for self.a.next(), because we always choose self.a first
+                self.b.next()?;
+            }
+        };
+        self.next_is_a = Self::choose_first(&self.a, &self.b);
+        Ok(())
     }
 }
