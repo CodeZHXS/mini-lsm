@@ -195,7 +195,15 @@ impl SsTable {
 
     /// Read a block from the disk.
     pub fn read_block(&self, block_idx: usize) -> Result<Arc<Block>> {
-        unimplemented!()
+        let meta = &self.block_meta;
+        let offset_beg = meta[block_idx].offset as u64;
+        let offset_end = if block_idx + 1 < self.num_of_blocks() {
+            meta[block_idx + 1].offset as u64
+        } else {
+            self.block_meta_offset as u64
+        };
+        let block_raw = self.file.read(offset_beg, offset_end - offset_beg)?;
+        Ok(Arc::new(Block::decode(&block_raw)))
     }
 
     /// Read a block from disk, with block cache. (Day 4)
@@ -207,7 +215,25 @@ impl SsTable {
     /// Note: You may want to make use of the `first_key` stored in `BlockMeta`.
     /// You may also assume the key-value pairs stored in each consecutive block are sorted.
     pub fn find_block_idx(&self, key: KeySlice) -> usize {
-        unimplemented!()
+        let mut l = 0;
+        let mut r = self.num_of_blocks() - 1;
+        loop {
+            if l == r {
+                break l;
+            }
+            let mid = (l + r) / 2;
+            let first_key = self.block_meta[mid].first_key.clone();
+            let last_key = self.block_meta[mid].last_key.clone();
+            if first_key.as_key_slice() <= key {
+                if key <= last_key.as_key_slice() {
+                    break mid;
+                } else {
+                    l = mid + 1;
+                }
+            } else {
+                r = mid;
+            }
+        }
     }
 
     /// Get number of data blocks.
