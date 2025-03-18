@@ -12,22 +12,20 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#![allow(unused_variables)] // TODO(you): remove this lint after implementing this mod
-#![allow(dead_code)] // TODO(you): remove this lint after implementing this mod
-
 use std::path::Path;
 use std::sync::Arc;
 
 use anyhow::Result;
+use bytes::BufMut;
 
 use super::{BlockMeta, SsTable};
-use crate::{block::BlockBuilder, key::KeySlice, lsm_storage::BlockCache};
+use crate::{block::BlockBuilder, key::KeySlice, lsm_storage::BlockCache, table::FileObject};
 
 /// Builds an SSTable from key-value pairs.
 pub struct SsTableBuilder {
     builder: BlockBuilder,
-    first_key: Vec<u8>,
-    last_key: Vec<u8>,
+    // first_key: Vec<u8>,
+    // last_key: Vec<u8>,
     data: Vec<u8>,
     pub(crate) meta: Vec<BlockMeta>,
     block_size: usize,
@@ -36,7 +34,14 @@ pub struct SsTableBuilder {
 impl SsTableBuilder {
     /// Create a builder based on target block size.
     pub fn new(block_size: usize) -> Self {
-        unimplemented!()
+        Self {
+            builder: BlockBuilder::new(block_size),
+            // first_key: vec![],
+            // last_key: vec![],
+            data: vec![],
+            meta: vec![],
+            block_size: block_size,
+        }
     }
 
     /// Adds a key-value pair to SSTable.
@@ -44,7 +49,23 @@ impl SsTableBuilder {
     /// Note: You should split a new block when the current block is full.(`std::mem::replace` may
     /// be helpful here)
     pub fn add(&mut self, key: KeySlice, value: &[u8]) {
-        unimplemented!()
+        if !self.builder.add(key, value) {
+            self.add_block_data();
+            let ok = self.builder.add(key, value);
+            assert!(ok)
+        }
+    }
+
+    fn add_block_data(&mut self) {
+        let full_builder = std::mem::replace(&mut self.builder, BlockBuilder::new(self.block_size));
+        let block = full_builder.build();
+        let n = block.get_element_nums();
+        self.meta.push(BlockMeta {
+            offset: self.data.len(),
+            first_key: block.get_key(0).into_key_bytes(),
+            last_key: block.get_key(n - 1).into_key_bytes(),
+        });
+        self.data.extend(block.encode());
     }
 
     /// Get the estimated size of the SSTable.
@@ -52,17 +73,39 @@ impl SsTableBuilder {
     /// Since the data blocks contain much more data than meta blocks, just return the size of data
     /// blocks here.
     pub fn estimated_size(&self) -> usize {
-        unimplemented!()
+        self.data.len()
     }
 
     /// Builds the SSTable and writes it to the given path. Use the `FileObject` structure to manipulate the disk objects.
     pub fn build(
-        self,
+        mut self,
         id: usize,
         block_cache: Option<Arc<BlockCache>>,
         path: impl AsRef<Path>,
     ) -> Result<SsTable> {
-        unimplemented!()
+        assert!(!self.builder.is_empty());
+        self.add_block_data();
+
+        let mut buf = self.data;
+        let block_meta_offset = buf.len();
+        BlockMeta::encode_block_meta(self.meta.as_ref(), &mut buf);
+        buf.put_u32(block_meta_offset as u32);
+
+        let file = FileObject::create(path.as_ref(), buf)?;
+        let first_key = self.meta.first().unwrap().first_key.clone();
+        let last_key = self.meta.last().unwrap().last_key.clone();
+
+        Ok(SsTable {
+            file,
+            block_meta: self.meta,
+            block_meta_offset,
+            id,
+            block_cache,
+            first_key,
+            last_key,
+            bloom: None,
+            max_ts: 0,
+        })
     }
 
     #[cfg(test)]
