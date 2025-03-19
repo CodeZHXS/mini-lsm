@@ -24,6 +24,7 @@ use std::usize;
 
 use anyhow::Result;
 use bytes::Bytes;
+use farmhash::hash32;
 use parking_lot::{Mutex, MutexGuard, RwLock};
 
 use crate::block::Block;
@@ -362,6 +363,13 @@ impl LsmStorageInner {
 
         for id in snapshot.l0_sstables.iter() {
             let table = snapshot.sstables[id].clone();
+
+            if let Some(bloom) = &table.bloom {
+                if !bloom.may_contain(hash32(key)) {
+                    continue;
+                }
+            }
+
             let iter = SsTableIterator::create_and_seek_to_key(table, KeySlice::from_slice(key))?;
             if iter.is_valid() && iter.key().raw_ref() == key {
                 let value = iter.value();
