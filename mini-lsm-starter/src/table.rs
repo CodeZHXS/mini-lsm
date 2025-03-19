@@ -20,6 +20,7 @@ mod builder;
 mod iterator;
 
 use std::fs::File;
+use std::ops::Bound;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -191,6 +192,37 @@ impl SsTable {
             bloom: None,
             max_ts: 0,
         }
+    }
+
+    pub fn overlap(&self, lower: Bound<&[u8]>, upper: Bound<&[u8]>) -> bool {
+        match lower {
+            Bound::Included(lower) => {
+                if self.last_key.raw_ref() < lower {
+                    return false;
+                }
+            }
+            Bound::Excluded(lower) => {
+                if self.last_key.raw_ref() <= lower {
+                    return false;
+                }
+            }
+            Bound::Unbounded => {}
+        }
+
+        match upper {
+            Bound::Included(upper) => {
+                if self.first_key().raw_ref() > upper {
+                    return false;
+                }
+            }
+            Bound::Excluded(upper) => {
+                if self.first_key().raw_ref() >= upper {
+                    return false;
+                }
+            }
+            Bound::Unbounded => {}
+        }
+        true
     }
 
     /// Read a block from the disk.
