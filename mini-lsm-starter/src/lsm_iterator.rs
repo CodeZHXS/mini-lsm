@@ -19,15 +19,18 @@ use bytes::Bytes;
 
 use crate::{
     iterators::{
-        merge_iterator::MergeIterator, two_merge_iterator::TwoMergeIterator, StorageIterator,
+        concat_iterator::SstConcatIterator, merge_iterator::MergeIterator,
+        two_merge_iterator::TwoMergeIterator, StorageIterator,
     },
     mem_table::{map_bound, MemTableIterator},
     table::SsTableIterator,
 };
 
 /// Represents the internal type for an LSM iterator. This type will be changed across the course for multiple times.
-type LsmIteratorInner =
-    TwoMergeIterator<MergeIterator<MemTableIterator>, MergeIterator<SsTableIterator>>;
+type LsmIteratorInner = TwoMergeIterator<
+    TwoMergeIterator<MergeIterator<MemTableIterator>, MergeIterator<SsTableIterator>>,
+    SstConcatIterator,
+>;
 
 pub struct LsmIterator {
     inner: LsmIteratorInner,
@@ -42,7 +45,7 @@ impl LsmIterator {
             inner: iter,
             end_bound: map_bound(end_bound),
         };
-        lsm_iter.move_to_non_delete()?;
+        lsm_iter.move_skip_tombstone()?;
         Ok(lsm_iter)
     }
 
@@ -60,7 +63,7 @@ impl LsmIterator {
         Ok(())
     }
 
-    fn move_to_non_delete(&mut self) -> Result<()> {
+    fn move_skip_tombstone(&mut self) -> Result<()> {
         while self.is_valid() && self.value().is_empty() {
             self.next_inner()?;
         }
@@ -85,7 +88,7 @@ impl StorageIterator for LsmIterator {
 
     fn next(&mut self) -> Result<()> {
         self.next_inner()?;
-        self.move_to_non_delete()?;
+        self.move_skip_tombstone()?;
         Ok(())
     }
 
