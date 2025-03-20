@@ -51,18 +51,22 @@ impl BlockBuilder {
         let value_len = value.len() as u16;
 
         if self.is_empty() {
-            self.add_kv(key_len, key, value_len, value);
+            self.add_kv(0, key_len, key, value_len, value);
             self.first_key = key.to_key_vec();
             return true;
         }
 
-        if self.current_block_size() + (key_len + value_len) as usize + SIZEOF_U16 * 3
+        let key_overlap_len = self.get_overlap_len(key);
+        let key_rest_len = key_len - key_overlap_len;
+
+        // offset + key_overlap_len + key_rest_len + value_len = 4
+        if self.current_block_size() + (key_rest_len + value_len) as usize + SIZEOF_U16 * 4
             > self.block_size
         {
             return false;
         }
 
-        self.add_kv(key_len, key, value_len, value);
+        self.add_kv(key_overlap_len, key_rest_len, key, value_len, value);
         true
     }
 
@@ -83,10 +87,28 @@ impl BlockBuilder {
         self.data.len() + self.offsets.len()
     }
 
-    fn add_kv(&mut self, key_len: u16, key: KeySlice, value_len: u16, value: &[u8]) {
+    fn get_overlap_len(&self, key: KeySlice) -> u16 {
+        let first_key = self.first_key.raw_ref();
+        let key = key.raw_ref();
+        let mut i = 0;
+        while i < first_key.len() && i < key.len() && first_key[i] == key[i] {
+            i += 1;
+        }
+        i as u16
+    }
+
+    fn add_kv(
+        &mut self,
+        key_overlap_len: u16,
+        key_rest_len: u16,
+        key: KeySlice,
+        value_len: u16,
+        value: &[u8],
+    ) {
         self.offsets.push(self.data.len() as u16);
-        self.data.put_u16(key_len);
-        self.data.put(key.raw_ref());
+        self.data.put_u16(key_overlap_len);
+        self.data.put_u16(key_rest_len);
+        self.data.put(&key.raw_ref()[key_overlap_len as usize..]);
         self.data.put_u16(value_len);
         self.data.put(value);
     }

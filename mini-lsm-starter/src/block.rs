@@ -60,20 +60,26 @@ impl Block {
         if nth >= self.offsets.len() {
             return KeyVec::new();
         }
-        let key_len = self.get_key_len(nth);
+        let (key_overlap_len, key_rest_len) = self.get_key_len(nth);
         let offset = self.offsets[nth] as usize;
-        let first_key_raw = &self.data[offset + SIZEOF_U16..offset + SIZEOF_U16 + key_len];
-        KeyVec::from_vec(first_key_raw.to_vec())
+        let mut buf = self.first_key_prefix(key_overlap_len).to_vec();
+        buf.extend(self.get_data_by_range((
+            offset + 2 * SIZEOF_U16,
+            offset + 2 * SIZEOF_U16 + key_rest_len,
+        )));
+        KeyVec::from_vec(buf)
     }
 
     pub fn get_value_range(&self, nth: usize) -> (usize, usize) {
         if nth >= self.offsets.len() {
             return (0, 0);
         }
-        let key_len = self.get_key_len(nth);
+        let (_, key_rest_len) = self.get_key_len(nth);
         let offset = self.offsets[nth] as usize;
-        let value_offset = offset + SIZEOF_U16 + key_len;
-        let value_len = (&self.data[value_offset..value_offset + SIZEOF_U16]).get_u16() as usize;
+        let value_offset = offset + 2 * SIZEOF_U16 + key_rest_len;
+        let value_len = self
+            .get_data_by_range((value_offset, value_offset + SIZEOF_U16))
+            .get_u16() as usize;
         (
             value_offset + SIZEOF_U16,
             value_offset + SIZEOF_U16 + value_len,
@@ -84,12 +90,22 @@ impl Block {
         return self.offsets.len();
     }
 
-    fn get_key_len(&self, nth: usize) -> usize {
+    fn get_key_len(&self, nth: usize) -> (usize, usize) {
         let offset = self.offsets[nth] as usize;
-        (&self.data[offset..offset + 2]).get_u16() as usize
+        let key_overlap_len = self
+            .get_data_by_range((offset, offset + SIZEOF_U16))
+            .get_u16() as usize;
+        let key_rest_len = self
+            .get_data_by_range((offset + SIZEOF_U16, offset + 2 * SIZEOF_U16))
+            .get_u16() as usize;
+        (key_overlap_len, key_rest_len)
     }
 
     fn get_data_by_range(&self, range: (usize, usize)) -> &[u8] {
         &self.data[range.0..range.1]
+    }
+
+    fn first_key_prefix(&self, key_overlap_len: usize) -> &[u8] {
+        self.get_data_by_range((2 * SIZEOF_U16, 2 * SIZEOF_U16 + key_overlap_len))
     }
 }
