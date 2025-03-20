@@ -189,10 +189,13 @@ impl LsmStorageInner {
 
     pub fn force_full_compaction(&self) -> Result<()> {
         let (l0_sstables, l1_sstables) = self.get_l0_and_l1_sst_snapshot();
-        let sstables = self.compact(&CompactionTask::ForceFullCompaction {
+        let task = &CompactionTask::ForceFullCompaction {
             l0_sstables: (l0_sstables.clone()),
             l1_sstables: (l1_sstables.clone()),
-        })?;
+        };
+        println!("force full compaction: {:?}", task);
+
+        let sstables = self.compact(task)?;
 
         {
             let state_lock = self.state_lock.lock();
@@ -206,6 +209,7 @@ impl LsmStorageInner {
                 snapshot.sstables.insert(table.sst_id(), table);
             }
 
+            println!("force full compaction done, new SSTs: {:?}", l1);
             snapshot.levels[0].1 = l1;
 
             let l0_truncate_len = snapshot.l0_sstables.len() - l0_sstables.len();
