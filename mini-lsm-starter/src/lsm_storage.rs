@@ -437,17 +437,22 @@ impl LsmStorageInner {
     /// Force freeze the current memtable to an immutable memtable
     pub fn force_freeze_memtable(&self, _state_lock_observer: &MutexGuard<'_, ()>) -> Result<()> {
         let new_memtable = Arc::new(MemTable::create(self.next_sst_id()));
-        let mut guard = self.state.write();
-        let mut snapshot = guard.as_ref().clone();
-        let old_memtable = std::mem::replace(&mut snapshot.memtable, new_memtable);
-        snapshot.imm_memtables.insert(0, old_memtable.clone());
-        // snapshot.imm_memtables.push(old_memtable.clone());
-        *guard = Arc::new(snapshot);
+
+        {
+            let mut guard = self.state.write();
+            let mut snapshot = guard.as_ref().clone();
+            let old_memtable = std::mem::replace(&mut snapshot.memtable, new_memtable);
+            snapshot.imm_memtables.insert(0, old_memtable.clone());
+            *guard = Arc::new(snapshot);
+        }
+
         Ok(())
     }
 
     /// Force flush the earliest-created immutable memtable to disk
     pub fn force_flush_next_imm_memtable(&self) -> Result<()> {
+        let state_guard = self.state_lock.lock();
+
         let last_memtable = self.state.read().imm_memtables.last().unwrap().clone();
         let mut sst_builder = SsTableBuilder::new(self.options.block_size);
         last_memtable.flush(&mut sst_builder)?;
@@ -459,13 +464,15 @@ impl LsmStorageInner {
             self.path_of_sst(id),
         )?);
 
-        let mut guard = self.state.write();
-        let mut snapshot = guard.as_ref().clone();
-        snapshot.imm_memtables.pop().unwrap();
-        snapshot.l0_sstables.insert(0, id);
-        println!("flushed {}.sst with size={}", id, sst.table_size());
-        snapshot.sstables.insert(id, sst);
-        *guard = Arc::new(snapshot);
+        {
+            let mut guard = self.state.write();
+            let mut snapshot = guard.as_ref().clone();
+            snapshot.imm_memtables.pop().unwrap();
+            snapshot.l0_sstables.insert(0, id);
+            println!("flushed {}.sst with size={}", id, sst.table_size());
+            snapshot.sstables.insert(id, sst);
+            *guard = Arc::new(snapshot);
+        }
 
         Ok(())
     }

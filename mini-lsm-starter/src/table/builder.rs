@@ -95,7 +95,6 @@ impl SsTableBuilder {
         block_cache: Option<Arc<BlockCache>>,
         path: impl AsRef<Path>,
     ) -> Result<SsTable> {
-        assert!(!self.builder.is_empty());
         self.add_block_data();
 
         let mut buf = self.data;
