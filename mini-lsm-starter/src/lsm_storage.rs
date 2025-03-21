@@ -158,12 +158,16 @@ impl LsmStorageState {
         Ok(MergeIterator::create(sst_iters))
     }
 
-    fn get_l1_sst_concat_iter(
+    fn get_level_sst_concat_iter(
         &self,
+        level: usize,
         lower: Bound<&[u8]>,
         upper: Bound<&[u8]>,
     ) -> Result<SstConcatIterator> {
-        let l1_sst = self.filter_level_sst(self.levels[0].1.as_ref(), lower, upper);
+        assert!(level >= 1 && level <= self.levels.len());
+
+        let sst_ids = self.levels[level - 1].1.as_ref();
+        let l1_sst = self.filter_level_sst(sst_ids, lower, upper);
         let iter = match lower {
             Bound::Included(key) => {
                 SstConcatIterator::create_and_seek_to_key(l1_sst, KeySlice::from_slice(key))?
@@ -179,6 +183,19 @@ impl LsmStorageState {
             Bound::Unbounded => SstConcatIterator::create_and_seek_to_first(l1_sst)?,
         };
         Ok(iter)
+    }
+
+    fn get_all_level_merge_iter(
+        &self,
+        lower: Bound<&[u8]>,
+        upper: Bound<&[u8]>,
+    ) -> Result<MergeIterator<SstConcatIterator>> {
+        let mut level_iters = Vec::with_capacity(self.levels.len());
+        for i in 1..=self.levels.len() {
+            let iter = self.get_level_sst_concat_iter(i, lower, upper)?;
+            level_iters.push(Box::new(iter));
+        }
+        Ok(MergeIterator::create(level_iters))
     }
 }
 
@@ -445,14 +462,19 @@ impl LsmStorageInner {
             }
         }
 
-        let l1_iter =
-            snapshot.get_l1_sst_concat_iter(Bound::Included(key), Bound::Included(key))?;
-        if l1_iter.is_valid() && l1_iter.key().raw_ref() == key {
-            let value = l1_iter.value();
-            if value.is_empty() {
-                return Ok(None);
+        for i in 1..=snapshot.levels.len() {
+            let iter = snapshot.get_level_sst_concat_iter(
+                i,
+                Bound::Included(key),
+                Bound::Included(key),
+            )?;
+            if iter.is_valid() && iter.key().raw_ref() == key {
+                let value = iter.value();
+                if value.is_empty() {
+                    return Ok(None);
+                }
+                return Ok(Some(Bytes::copy_from_slice(value)));
             }
-            return Ok(Some(Bytes::copy_from_slice(value)));
         }
 
         Ok(None)
@@ -575,10 +597,9 @@ impl LsmStorageInner {
         let l0_sst_merge_iter = snapshot.get_l0_sst_merge_iter(lower, upper)?;
         let mem_with_l0_iter = TwoMergeIterator::create(mem_merge_iter, l0_sst_merge_iter)?;
 
-        let l1_concat_iter = snapshot.get_l1_sst_concat_iter(lower, upper)?;
+        let all_level_merge_iter = snapshot.get_all_level_merge_iter(lower, upper)?;
 
-        let inner_iter = TwoMergeIterator::create(mem_with_l0_iter, l1_concat_iter)?;
-
+        let inner_iter = TwoMergeIterator::create(mem_with_l0_iter, all_level_merge_iter)?;
         let lsm_iters = LsmIterator::new(inner_iter, upper)?;
         Ok(FusedIterator::new(lsm_iters))
     }

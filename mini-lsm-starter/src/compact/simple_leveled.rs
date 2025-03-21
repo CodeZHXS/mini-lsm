@@ -107,17 +107,18 @@ impl SimpleLeveledCompactionController {
         if let Some(upper_level) = task.upper_level {
             snapshot.levels[upper_level - 1].1.clear();
         } else {
-            snapshot.l0_sstables.clear();
+            let l0_truncate_len = snapshot.l0_sstables.len() - task.upper_level_sst_ids.len();
+            snapshot.l0_sstables.truncate(l0_truncate_len);
         }
         snapshot.levels[task.lower_level - 1].1 = output.to_vec();
 
-        let unused_sst = task
+        let unused_sst_ids = task
             .upper_level_sst_ids
             .iter()
             .chain(task.lower_level_sst_ids.iter())
             .cloned()
             .collect();
 
-        (snapshot, unused_sst)
+        (snapshot, unused_sst_ids)
     }
 }
