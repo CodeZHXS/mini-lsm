@@ -86,6 +86,10 @@ impl LsmStorageState {
         }
     }
 
+    pub fn collect_sst_from_ids(&self, ids: &[usize]) -> Vec<Arc<SsTable>> {
+        ids.iter().map(|id| self.sstables[id].clone()).collect()
+    }
+
     /// for unordered l0_sst, use brute force method to filter
     fn filter_l0_sst(&self, lower: Bound<&[u8]>, upper: Bound<&[u8]>) -> Vec<Arc<SsTable>> {
         let mut ans: Vec<Arc<SsTable>> = vec![];
@@ -124,10 +128,7 @@ impl LsmStorageState {
                 Bound::Unbounded => ids.len(),
             };
 
-        ids[start..end]
-            .iter()
-            .map(|id| self.sstables[id].clone())
-            .collect()
+        self.collect_sst_from_ids(&ids[start..end])
     }
 
     fn get_l0_sst_merge_iter(
