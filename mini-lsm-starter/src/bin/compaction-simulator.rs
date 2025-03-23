@@ -13,6 +13,7 @@
 // limitations under the License.
 
 mod wrapper;
+use rand::Rng as _;
 use wrapper::mini_lsm_wrapper;
 
 use std::collections::HashMap;
@@ -236,19 +237,29 @@ impl MockStorage {
     }
 }
 
-fn generate_random_key_range() -> (KeyBytes, KeyBytes) {
-    use rand::Rng;
-    let mut rng = rand::thread_rng();
-    let begin: usize = rng.gen_range(0..(1 << 31));
-    let end: usize = begin + rng.gen_range((1 << 10)..(1 << 31));
-    let mut begin_bytes = BytesMut::new();
-    let mut end_bytes = BytesMut::new();
-    begin_bytes.put_u64(begin as u64);
-    end_bytes.put_u64(end as u64);
-    (
-        KeyBytes::for_testing_from_bytes_no_ts(begin_bytes.freeze()),
-        KeyBytes::for_testing_from_bytes_no_ts(end_bytes.freeze()),
-    )
+struct KeyRangeGenerator {
+    rng: rand::rngs::StdRng,
+}
+
+impl KeyRangeGenerator {
+    fn create(seed: &[u8; 32]) -> Self {
+        Self {
+            rng: rand::SeedableRng::from_seed(*seed),
+        }
+    }
+
+    fn generate_random_key_range(&mut self) -> (KeyBytes, KeyBytes) {
+        let begin: usize = self.rng.gen_range(0..(1 << 31));
+        let end: usize = begin + self.rng.gen_range((1 << 10)..(1 << 31));
+        let mut begin_bytes = BytesMut::new();
+        let mut end_bytes = BytesMut::new();
+        begin_bytes.put_u64(begin as u64);
+        end_bytes.put_u64(end as u64);
+        (
+            KeyBytes::for_testing_from_bytes_no_ts(begin_bytes.freeze()),
+            KeyBytes::for_testing_from_bytes_no_ts(end_bytes.freeze()),
+        )
+    }
 }
 
 fn generate_random_split(
@@ -500,6 +511,8 @@ fn main() {
             iterations,
             sst_size_mb,
         } => {
+            let mut rng = KeyRangeGenerator::create(&[1; 32]);
+
             let controller = LeveledCompactionController::new(LeveledCompactionOptions {
                 level0_file_num_compaction_trigger,
                 level_size_multiplier,
@@ -515,7 +528,7 @@ fn main() {
             for i in 0..iterations {
                 println!("=== Iteration {i} ===");
                 let id = storage.flush_sst_to_l0();
-                let (first_key, last_key) = generate_random_key_range();
+                let (first_key, last_key) = rng.generate_random_key_range();
                 storage.snapshot.sstables.insert(
                     id,
                     Arc::new(SsTable::create_meta_only(
