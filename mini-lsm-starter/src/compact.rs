@@ -38,6 +38,7 @@ use crate::iterators::two_merge_iterator::TwoMergeIterator;
 use crate::iterators::StorageIterator;
 use crate::key::KeySlice;
 use crate::lsm_storage::{LsmStorageInner, LsmStorageState};
+use crate::manifest::ManifestRecord;
 use crate::table::{SsTable, SsTableBuilder, SsTableIterator};
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -230,6 +231,7 @@ impl LsmStorageInner {
         let new_sst_ids: Vec<usize> = new_sst.iter().map(|t| t.sst_id()).collect();
 
         let state_guard = self.state_lock.lock();
+
         let (mut snapshot, unused_sst_ids) = self.compaction_controller.apply_compaction_result(
             &self.state.read(),
             &task,
@@ -239,6 +241,12 @@ impl LsmStorageInner {
         snapshot.remove_sst_batch(&unused_sst_ids);
         snapshot.add_sst_batch(new_sst);
         *self.state.write() = Arc::new(snapshot);
+        // self.sync_dir()?;
+
+        if let Some(manifest) = &self.manifest {
+            manifest.add_record(&state_guard, ManifestRecord::Compaction(task, new_sst_ids))?
+        }
+
         drop(state_guard);
 
         for id in unused_sst_ids {

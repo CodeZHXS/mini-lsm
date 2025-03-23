@@ -38,7 +38,7 @@ use crate::iterators::two_merge_iterator::TwoMergeIterator;
 use crate::iterators::StorageIterator;
 use crate::key::KeySlice;
 use crate::lsm_iterator::{FusedIterator, LsmIterator};
-use crate::manifest::Manifest;
+use crate::manifest::{Manifest, ManifestRecord};
 use crate::mem_table::MemTable;
 use crate::mvcc::LsmMvccInner;
 use crate::table::{SsTable, SsTableBuilder, SsTableIterator};
@@ -462,6 +462,12 @@ impl LsmStorageInner {
             println!("flushed {}.sst with size={}", id, sst.table_size());
             snapshot.sstables.insert(id, sst);
             *guard = Arc::new(snapshot);
+        }
+
+        // self.sync_dir()?;
+
+        if let Some(manifest) = &self.manifest {
+            manifest.add_record(&state_guard, ManifestRecord::Flush(id))?;
         }
 
         Ok(())
