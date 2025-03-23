@@ -53,7 +53,7 @@ impl BlockMeta {
         for meta in block_meta {
             let first_key_len = meta.first_key.len();
             let last_key_len = meta.last_key.len();
-            reserve_size += (first_key_len + last_key_len) as usize;
+            reserve_size += first_key_len + last_key_len;
         }
         buf.reserve(reserve_size);
         let original_len = buf.len();

@@ -94,7 +94,7 @@ impl Bloom {
         filter.resize(nbytes, 0);
 
         for h in keys {
-            let delta = (h >> 17) | (h << 15); // h is the key hash
+            let delta = h.rotate_left(15); // h is the key hash
             let mut h = *h as usize % nbits;
             for _ in 0..k {
                 filter.set_bit(h, true);

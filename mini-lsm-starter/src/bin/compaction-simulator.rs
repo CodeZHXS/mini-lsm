@@ -511,7 +511,7 @@ fn main() {
             iterations,
             sst_size_mb,
         } => {
-            let mut rng = KeyRangeGenerator::create(&[1; 32]);
+            let mut rng = KeyRangeGenerator::create(&[3; 32]);
 
             let controller = LeveledCompactionController::new(LeveledCompactionOptions {
                 level0_file_num_compaction_trigger,

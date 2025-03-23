@@ -87,7 +87,7 @@ impl Block {
     }
 
     pub fn get_element_nums(&self) -> usize {
-        return self.offsets.len();
+        self.offsets.len()
     }
 
     fn get_key_len(&self, nth: usize) -> (usize, usize) {

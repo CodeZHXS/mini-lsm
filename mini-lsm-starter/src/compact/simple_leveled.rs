@@ -70,7 +70,7 @@ impl SimpleLeveledCompactionController {
         for i in 1..self.options.max_levels {
             let upper_size = level_size[i - 1];
             let lower_size = level_size[i];
-            let size_ratio = lower_size / upper_size as f64;
+            let size_ratio = lower_size / upper_size;
             if size_ratio < self.options.size_ratio_percent as f64 / 100.0 {
                 println!(
                     "compaction triggered at level {} and {} with size ratio {}",

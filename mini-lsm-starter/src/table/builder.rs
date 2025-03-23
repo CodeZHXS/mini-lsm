@@ -49,7 +49,7 @@ impl SsTableBuilder {
             // last_key: vec![],
             data: vec![],
             meta: vec![],
-            block_size: block_size,
+            block_size,
             key_hashes: vec![],
         }
     }

@@ -91,12 +91,7 @@ impl MemTable {
 
     /// Get a value by key.
     pub fn get(&self, key: &[u8]) -> Option<Bytes> {
-        let entry = self.map.get(key);
-        if entry.is_none() {
-            None
-        } else {
-            Some(entry.unwrap().value().clone())
-        }
+        self.map.get(key).map(|entry| entry.value().clone())
     }
 
     /// Put a key-value pair into the mem-table.
@@ -139,7 +134,7 @@ impl MemTable {
         }
         .build();
         it.with_mut(|x| *x.item = MemTableIterator::entry_to_item(x.iter.next()));
-        return it;
+        it
     }
 
     /// Flush the mem-table to SSTable. Implement in week 1 day 6.
