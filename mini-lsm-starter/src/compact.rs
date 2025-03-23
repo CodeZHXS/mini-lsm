@@ -12,9 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#![allow(unused_variables)] // TODO(you): remove this lint after implementing this mod
-#![allow(dead_code)] // TODO(you): remove this lint after implementing this mod
-
 mod leveled;
 mod simple_leveled;
 mod tiered;
@@ -134,10 +131,7 @@ impl LsmStorageInner {
     fn compact(&self, task: &CompactionTask) -> Result<Vec<Arc<SsTable>>> {
         let sstables = &self.state.read().sstables;
         match task {
-            CompactionTask::Tiered(TieredCompactionTask {
-                tiers,
-                bottom_tier_included,
-            }) => {
+            CompactionTask::Tiered(TieredCompactionTask { tiers, .. }) => {
                 let iter = Self::merge_sst_concat_iter_from_tiers(sstables, tiers)?;
                 self.compact_result_from_iter(iter, task.compact_to_bottom_level())
             }
@@ -192,7 +186,7 @@ impl LsmStorageInner {
         let sstables = self.compact(task)?;
 
         {
-            let state_lock = self.state_lock.lock();
+            let _state_lock = self.state_lock.lock();
             let mut snapshot = self.state.read().as_ref().clone();
 
             snapshot.remove_sst_batch(&l0_sstables);
@@ -241,7 +235,7 @@ impl LsmStorageInner {
         snapshot.remove_sst_batch(&unused_sst_ids);
         snapshot.add_sst_batch(new_sst);
         *self.state.write() = Arc::new(snapshot);
-        // self.sync_dir()?;
+        self.sync_dir()?;
 
         if let Some(manifest) = &self.manifest {
             manifest.add_record(&state_guard, ManifestRecord::Compaction(task, new_sst_ids))?
@@ -252,6 +246,7 @@ impl LsmStorageInner {
         for id in unused_sst_ids {
             std::fs::remove_file(self.path_of_sst(id))?;
         }
+        self.sync_dir()?;
 
         Ok(())
     }

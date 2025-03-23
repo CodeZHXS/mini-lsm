@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::collections::HashSet;
+
 use bytes::Bytes;
 use serde::{Deserialize, Serialize};
 
@@ -191,6 +193,45 @@ impl LeveledCompactionController {
         in_recovery: bool,
     ) -> (LsmStorageState, Vec<usize>) {
         let mut snapshot = snapshot.clone();
+        let unused_sst_ids = task
+            .upper_level_sst_ids
+            .iter()
+            .chain(task.lower_level_sst_ids.iter())
+            .cloned()
+            .collect();
+
+        if in_recovery {
+            match task.upper_level {
+                Some(upper_level) => {
+                    let set = task
+                        .upper_level_sst_ids
+                        .iter()
+                        .cloned()
+                        .collect::<HashSet<usize>>();
+                    snapshot.levels[upper_level - 1]
+                        .1
+                        .retain(|id| !set.contains(id));
+                }
+                None => {
+                    let l0_truncate_len =
+                        snapshot.l0_sstables.len() - task.upper_level_sst_ids.len();
+                    snapshot.l0_sstables.truncate(l0_truncate_len);
+                }
+            }
+
+            let set = task
+                .lower_level_sst_ids
+                .iter()
+                .cloned()
+                .collect::<HashSet<usize>>();
+            snapshot.levels[task.lower_level - 1]
+                .1
+                .retain(|id| !set.contains(id));
+            snapshot.levels[task.lower_level - 1]
+                .1
+                .extend(output.iter().cloned());
+            return (snapshot, unused_sst_ids);
+        }
 
         let (upper_first_key, upper_last_key) = match task.upper_level {
             Some(upper_level) => {
@@ -244,13 +285,6 @@ impl LeveledCompactionController {
         snapshot.levels[low_level - 1]
             .1
             .splice(beg..end, output.iter().cloned());
-
-        let unused_sst_ids = task
-            .upper_level_sst_ids
-            .iter()
-            .chain(task.lower_level_sst_ids.iter())
-            .cloned()
-            .collect();
 
         (snapshot, unused_sst_ids)
     }

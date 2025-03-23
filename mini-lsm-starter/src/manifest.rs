@@ -56,9 +56,10 @@ impl Manifest {
             .context("failed to create manifest")?;
         let mut data = vec![];
         file.read_to_end(&mut data)?;
-        let mut stream = serde_json::Deserializer::from_slice(&data).into_iter::<ManifestRecord>();
+        let stream = serde_json::Deserializer::from_slice(&data).into_iter::<ManifestRecord>();
         let mut records = vec![];
-        while let Some(x) = stream.next() {
+
+        for x in stream {
             records.push(x?);
         }
 
