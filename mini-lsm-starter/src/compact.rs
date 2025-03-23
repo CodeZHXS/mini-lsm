@@ -133,7 +133,6 @@ impl LsmStorageInner {
     fn compact(&self, task: &CompactionTask) -> Result<Vec<Arc<SsTable>>> {
         let sstables = &self.state.read().sstables;
         match task {
-            CompactionTask::Leveled(task) => todo!(),
             CompactionTask::Tiered(TieredCompactionTask {
                 tiers,
                 bottom_tier_included,
@@ -142,6 +141,12 @@ impl LsmStorageInner {
                 self.compact_result_from_iter(iter, task.compact_to_bottom_level())
             }
             CompactionTask::Simple(SimpleLeveledCompactionTask {
+                upper_level,
+                upper_level_sst_ids,
+                lower_level_sst_ids,
+                ..
+            })
+            | CompactionTask::Leveled(LeveledCompactionTask {
                 upper_level,
                 upper_level_sst_ids,
                 lower_level_sst_ids,
@@ -351,7 +356,7 @@ impl LsmStorageInner {
 
     fn sst_concat_iter_from_ids(
         sstables: &HashMap<usize, Arc<SsTable>>,
-        ids: &Vec<usize>,
+        ids: &[usize],
     ) -> Result<SstConcatIterator> {
         let sst = ids.iter().map(|id| sstables[id].clone()).collect();
         Ok(SstConcatIterator::create_and_seek_to_first(sst)?)

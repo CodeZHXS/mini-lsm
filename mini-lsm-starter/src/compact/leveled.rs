@@ -192,12 +192,11 @@ impl LeveledCompactionController {
     ) -> (LsmStorageState, Vec<usize>) {
         let mut snapshot = snapshot.clone();
 
-        match task.upper_level {
+        let (upper_first_key, upper_last_key) = match task.upper_level {
             Some(upper_level) => {
-                let upper_first_sst_id = task.upper_level_sst_ids.first().unwrap();
-                let upper_first_key = snapshot.sstables[upper_first_sst_id].first_key();
-                let upper_last_sst_id = task.upper_level_sst_ids.last().unwrap();
-                let upper_last_key = snapshot.sstables[upper_first_sst_id].last_key();
+                assert!(task.upper_level_sst_ids.len() == 1);
+                let upper_first_key = snapshot.sstables[&task.upper_level_sst_ids[0]].first_key();
+                let upper_last_key = snapshot.sstables[&task.upper_level_sst_ids[0]].last_key();
 
                 let (beg, end) = self.find_overlapping_range(
                     &snapshot,
@@ -206,16 +205,41 @@ impl LeveledCompactionController {
                     upper_level,
                 );
                 snapshot.levels[upper_level - 1].1.drain(beg..end);
+                (upper_first_key, upper_last_key)
             }
             None => {
                 let l0_truncate_len = snapshot.l0_sstables.len() - task.upper_level_sst_ids.len();
                 snapshot.l0_sstables.truncate(l0_truncate_len);
+                let upper_first_key = task
+                    .upper_level_sst_ids
+                    .iter()
+                    .map(|id| snapshot.sstables[id].first_key())
+                    .min()
+                    .unwrap();
+                let upper_last_key = task
+                    .upper_level_sst_ids
+                    .iter()
+                    .map(|id| snapshot.sstables[id].last_key())
+                    .max()
+                    .unwrap();
+                (upper_first_key, upper_last_key)
             }
-        }
+        };
 
         let low_level = task.lower_level;
-        let first_key = snapshot.sstables[output.first().unwrap()].first_key();
-        let last_key = snapshot.sstables[output.last().unwrap()].last_key();
+        let (first_key, last_key) = if task.lower_level_sst_ids.is_empty() {
+            (upper_first_key, upper_last_key)
+        } else {
+            let lower_first_key =
+                snapshot.sstables[task.lower_level_sst_ids.first().unwrap()].first_key();
+            let lower_last_key =
+                snapshot.sstables[task.lower_level_sst_ids.last().unwrap()].last_key();
+            (
+                upper_first_key.max(lower_first_key),
+                upper_last_key.min(lower_last_key),
+            )
+        };
+
         let (beg, end) = self.find_overlapping_range(&snapshot, first_key, last_key, low_level);
         snapshot.levels[low_level - 1]
             .1
