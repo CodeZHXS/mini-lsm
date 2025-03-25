@@ -13,20 +13,19 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-#![allow(unused_variables)] // TODO(you): remove this lint after implementing this mod
-#![allow(dead_code)] // TODO(you): remove this lint after implementing this mod
 
+use std::hash::Hasher;
 use std::io::{BufWriter, Read};
 use std::path::Path;
 use std::sync::Arc;
 use std::{fs::File, io::Write};
 
-use anyhow::{Context, Ok, Result};
+use anyhow::{bail, Context, Ok, Result};
 use bytes::{Buf, BufMut, Bytes};
 use crossbeam_skiplist::SkipMap;
 use parking_lot::Mutex;
 
-use crate::block::SIZEOF_U16;
+use crate::block::{SIZEOF_U16, SIZEOF_U32};
 
 pub struct Wal {
     file: Arc<Mutex<BufWriter<File>>>,
@@ -56,10 +55,25 @@ impl Wal {
         file.read_to_end(&mut buf)?;
         let mut rbuf = &buf[..];
         while rbuf.has_remaining() {
+            let mut hasher = crc32fast::Hasher::new();
+
             let key_len = rbuf.get_u16() as usize;
+            hasher.write_u16(key_len as u16);
+
             let key = rbuf.copy_to_bytes(key_len);
+            hasher.write(&key);
+
             let value_len = rbuf.get_u16() as usize;
+            hasher.write_u16(value_len as u16);
+
             let value = rbuf.copy_to_bytes(value_len);
+            hasher.write(&value);
+
+            let checksum = rbuf.get_u32();
+            if hasher.finalize() != checksum {
+                bail!("checksum mismatch");
+            }
+
             skiplist.insert(key, value);
         }
         Ok(Self {
@@ -70,11 +84,25 @@ impl Wal {
     pub fn put(&self, key: &[u8], value: &[u8]) -> Result<()> {
         let key_len = key.len();
         let value_len = value.len();
-        let mut buf = Vec::with_capacity(2 * SIZEOF_U16 + key_len + value_len);
+
+        // key_len(2) + key(key_len) + value_len(2) + value(value_len) + checksum(4)
+        let mut buf = Vec::with_capacity(2 * SIZEOF_U16 + key_len + value_len + SIZEOF_U32);
+        let mut hasher = crc32fast::Hasher::new();
+
         buf.put_u16(key_len as u16);
+        hasher.write_u16(key_len as u16);
+
         buf.put_slice(key);
+        hasher.write(key);
+
         buf.put_u16(value_len as u16);
+        hasher.write_u16(value_len as u16);
+
         buf.put_slice(value);
+        hasher.write(value);
+
+        buf.put_u32(hasher.finalize());
+
         self.file.lock().write_all(&buf)?;
         Ok(())
     }
