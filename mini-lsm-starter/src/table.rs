@@ -21,7 +21,7 @@ use std::ops::Bound;
 use std::path::Path;
 use std::sync::Arc;
 
-use anyhow::{anyhow, Ok, Result};
+use anyhow::{anyhow, bail, Ok, Result};
 pub use builder::SsTableBuilder;
 use bytes::{Buf, BufMut};
 pub use iterator::SsTableIterator;
@@ -239,7 +239,12 @@ impl SsTable {
         } else {
             self.block_meta_offset as u64
         };
-        let block_raw = self.file.read(offset_beg, offset_end - offset_beg)?;
+        let mut block_raw = self.file.read(offset_beg, offset_end - offset_beg)?;
+        let checksum_raw = block_raw.split_off(block_raw.len() - SIZEOF_U32);
+        let checksum = checksum_raw.as_slice().get_u32();
+        if checksum != crc32fast::hash(&block_raw) {
+            bail!("block checksum mismatched");
+        }
         Ok(Arc::new(Block::decode(&block_raw)))
     }
 
