@@ -19,7 +19,7 @@ use crate::{
     key::{KeySlice, KeyVec},
 };
 
-use super::Block;
+use super::{Block, SIZEOF_U64};
 
 /// Builds a block.
 pub struct BlockBuilder {
@@ -47,11 +47,13 @@ impl BlockBuilder {
     /// Adds a key-value pair to the block. Returns false when the block is full.
     #[must_use]
     pub fn add(&mut self, key: KeySlice, value: &[u8]) -> bool {
-        let key_len = key.len() as u16;
+        let ts = key.ts();
+        let key_ref = key.key_ref();
+        let key_len = key_ref.len() as u16;
         let value_len = value.len() as u16;
 
         if self.is_empty() {
-            self.add_kv(0, key_len, key, value_len, value);
+            self.add_kv(0, key_len, key_ref, ts, value_len, value);
             self.first_key = key.to_key_vec();
             return true;
         }
@@ -59,14 +61,16 @@ impl BlockBuilder {
         let key_overlap_len = self.get_overlap_len(key);
         let key_rest_len = key_len - key_overlap_len;
 
-        // offset + key_overlap_len + key_rest_len + value_len = 4
-        if self.current_block_size() + (key_rest_len + value_len) as usize + SIZEOF_U16 * 4
+        if self.current_block_size()
+            + (key_rest_len + value_len) as usize
+            + 4 * SIZEOF_U16 // offset(u16) + key_overlap_len(u16) + key_rest_len(u16) + value_len(u16) = 4 * SIZEOF_U16
+            + SIZEOF_U64 // ts(u64) = SIZEOF_U64
             > self.block_size
         {
             return false;
         }
 
-        self.add_kv(key_overlap_len, key_rest_len, key, value_len, value);
+        self.add_kv(key_overlap_len, key_rest_len, key_ref, ts, value_len, value);
         true
     }
 
@@ -88,8 +92,8 @@ impl BlockBuilder {
     }
 
     fn get_overlap_len(&self, key: KeySlice) -> u16 {
-        let first_key = self.first_key.raw_ref();
-        let key = key.raw_ref();
+        let first_key = self.first_key.key_ref();
+        let key = key.key_ref();
         let mut i = 0;
         while i < first_key.len() && i < key.len() && first_key[i] == key[i] {
             i += 1;
@@ -101,14 +105,16 @@ impl BlockBuilder {
         &mut self,
         key_overlap_len: u16,
         key_rest_len: u16,
-        key: KeySlice,
+        key: &[u8],
+        ts: u64,
         value_len: u16,
         value: &[u8],
     ) {
         self.offsets.push(self.data.len() as u16);
         self.data.put_u16(key_overlap_len);
         self.data.put_u16(key_rest_len);
-        self.data.put(&key.raw_ref()[key_overlap_len as usize..]);
+        self.data.put(&key[key_overlap_len as usize..]);
+        self.data.put_u64(ts);
         self.data.put_u16(value_len);
         self.data.put(value);
     }

@@ -65,7 +65,7 @@ impl SsTableBuilder {
             assert!(ok)
         }
 
-        self.key_hashes.push(hash32(key.raw_ref()));
+        self.key_hashes.push(hash32(key.key_ref()));
     }
 
     fn add_block_data(&mut self) {

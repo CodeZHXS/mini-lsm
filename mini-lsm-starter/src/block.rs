@@ -15,6 +15,7 @@
 pub(crate) const SIZEOF_U8: usize = std::mem::size_of::<u8>();
 pub(crate) const SIZEOF_U16: usize = std::mem::size_of::<u16>();
 pub(crate) const SIZEOF_U32: usize = std::mem::size_of::<u32>();
+pub(crate) const SIZEOF_U64: usize = std::mem::size_of::<u64>();
 
 mod builder;
 mod iterator;
@@ -64,11 +65,15 @@ impl Block {
         let (key_overlap_len, key_rest_len) = self.get_key_len(nth);
         let offset = self.offsets[nth] as usize;
         let mut buf = self.first_key_prefix(key_overlap_len).to_vec();
-        buf.extend(self.get_data_by_range((
-            offset + 2 * SIZEOF_U16,
-            offset + 2 * SIZEOF_U16 + key_rest_len,
-        )));
-        KeyVec::from_vec(buf)
+
+        let key_raw_begin = offset + 2 * SIZEOF_U16;
+        let key_raw_end = key_raw_begin + key_rest_len;
+        let key_ts_end = key_raw_end + SIZEOF_U64;
+
+        buf.extend(self.get_data_by_range((key_raw_begin, key_raw_end)));
+        let ts = self.get_data_by_range((key_raw_end, key_ts_end)).get_u64();
+
+        KeyVec::from_vec_with_ts(buf, ts)
     }
 
     pub fn get_value_range(&self, nth: usize) -> (usize, usize) {
@@ -77,7 +82,7 @@ impl Block {
         }
         let (_, key_rest_len) = self.get_key_len(nth);
         let offset = self.offsets[nth] as usize;
-        let value_offset = offset + 2 * SIZEOF_U16 + key_rest_len;
+        let value_offset = offset + 2 * SIZEOF_U16 + key_rest_len + SIZEOF_U64;
         let value_len = self
             .get_data_by_range((value_offset, value_offset + SIZEOF_U16))
             .get_u16() as usize;
@@ -106,6 +111,8 @@ impl Block {
         &self.data[range.0..range.1]
     }
 
+    /// first 2 u16 is key_overlap_len and key_rest_len
+    /// just skip them, and take key_overlap_len bytes
     fn first_key_prefix(&self, key_overlap_len: usize) -> &[u8] {
         self.get_data_by_range((2 * SIZEOF_U16, 2 * SIZEOF_U16 + key_overlap_len))
     }

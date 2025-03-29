@@ -52,8 +52,8 @@ impl BlockMeta {
         // offset(4) + first_key_len(2) + last_key_len(2)
         let mut reserve_size = n * (SIZEOF_U32 + SIZEOF_U16 * 2);
         for meta in block_meta {
-            let first_key_len = meta.first_key.len();
-            let last_key_len = meta.last_key.len();
+            let first_key_len = meta.first_key.raw_len();
+            let last_key_len = meta.last_key.raw_len();
             reserve_size += first_key_len + last_key_len;
         }
         // num_of_block(4) + checksum(4)
@@ -65,10 +65,14 @@ impl BlockMeta {
         buf.put_u32(n as u32);
         for meta in block_meta {
             buf.put_u32(meta.offset as u32);
-            buf.put_u16(meta.first_key.len() as u16);
-            buf.put_slice(meta.first_key.raw_ref());
-            buf.put_u16(meta.last_key.len() as u16);
-            buf.put_slice(meta.last_key.raw_ref());
+
+            buf.put_u16(meta.first_key.key_len() as u16);
+            buf.put_slice(meta.first_key.key_ref());
+            buf.put_u64(meta.first_key.ts());
+
+            buf.put_u16(meta.last_key.key_len() as u16);
+            buf.put_slice(meta.last_key.key_ref());
+            buf.put_u64(meta.last_key.ts());
         }
 
         let checksum = crc32fast::hash(buf[start..].as_ref());
@@ -88,14 +92,19 @@ impl BlockMeta {
 
         for _ in 0..num_of_blocks {
             let offset = buf.get_u32() as usize;
+
             let key_len = buf.get_u16() as usize;
             let first_key = buf.copy_to_bytes(key_len);
+            let first_key_ts = buf.get_u64();
+
             let key_len = buf.get_u16() as usize;
             let last_key = buf.copy_to_bytes(key_len);
+            let last_key_ts = buf.get_u64();
+
             block_meta.push(BlockMeta {
                 offset,
-                first_key: KeyBytes::from_bytes(first_key),
-                last_key: KeyBytes::from_bytes(last_key),
+                first_key: KeyBytes::from_bytes_with_ts(first_key, first_key_ts),
+                last_key: KeyBytes::from_bytes_with_ts(last_key, last_key_ts),
             });
         }
 
@@ -221,12 +230,12 @@ impl SsTable {
     pub fn overlap(&self, lower: Bound<&[u8]>, upper: Bound<&[u8]>) -> bool {
         match lower {
             Bound::Included(lower) => {
-                if self.last_key.raw_ref() < lower {
+                if self.last_key.key_ref() < lower {
                     return false;
                 }
             }
             Bound::Excluded(lower) => {
-                if self.last_key.raw_ref() <= lower {
+                if self.last_key.key_ref() <= lower {
                     return false;
                 }
             }
@@ -235,12 +244,12 @@ impl SsTable {
 
         match upper {
             Bound::Included(upper) => {
-                if self.first_key().raw_ref() > upper {
+                if self.first_key().key_ref() > upper {
                     return false;
                 }
             }
             Bound::Excluded(upper) => {
-                if self.first_key().raw_ref() >= upper {
+                if self.first_key().key_ref() >= upper {
                     return false;
                 }
             }

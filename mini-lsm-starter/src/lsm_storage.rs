@@ -37,7 +37,7 @@ use crate::iterators::concat_iterator::SstConcatIterator;
 use crate::iterators::merge_iterator::MergeIterator;
 use crate::iterators::two_merge_iterator::TwoMergeIterator;
 use crate::iterators::StorageIterator;
-use crate::key::KeySlice;
+use crate::key::{KeySlice, TS_RANGE_BEGIN};
 use crate::lsm_iterator::{FusedIterator, LsmIterator};
 use crate::manifest::{Manifest, ManifestRecord};
 use crate::mem_table::MemTable;
@@ -467,8 +467,11 @@ impl LsmStorageInner {
                 }
             }
 
-            let iter = SsTableIterator::create_and_seek_to_key(table, KeySlice::from_slice(key))?;
-            if iter.is_valid() && iter.key().raw_ref() == key {
+            let iter = SsTableIterator::create_and_seek_to_key(
+                table,
+                KeySlice::from_slice(key, TS_RANGE_BEGIN),
+            )?;
+            if iter.is_valid() && iter.key().key_ref() == key {
                 let value = iter.value();
                 if value.is_empty() {
                     return Ok(None);
@@ -484,7 +487,7 @@ impl LsmStorageInner {
                 Bound::Included(key),
                 Bound::Included(key),
             )?;
-            if iter.is_valid() && iter.key().raw_ref() == key {
+            if iter.is_valid() && iter.key().key_ref() == key {
                 let value = iter.value();
                 if value.is_empty() {
                     return Ok(None);
@@ -701,18 +704,18 @@ impl LsmStorageInner {
     ) -> Vec<Arc<SsTable>> {
         let start = match lower {
             Bound::Included(lower) => {
-                ids.partition_point(|id| snapshot.sstables[id].clone().last_key().raw_ref() < lower)
+                ids.partition_point(|id| snapshot.sstables[id].clone().last_key().key_ref() < lower)
             }
             Bound::Excluded(lower) => ids
-                .partition_point(|id| snapshot.sstables[id].clone().last_key().raw_ref() <= lower),
+                .partition_point(|id| snapshot.sstables[id].clone().last_key().key_ref() <= lower),
             Bound::Unbounded => 0,
         };
 
         let end = match upper {
             Bound::Included(upper) => ids
-                .partition_point(|id| snapshot.sstables[id].clone().first_key().raw_ref() <= upper),
+                .partition_point(|id| snapshot.sstables[id].clone().first_key().key_ref() <= upper),
             Bound::Excluded(upper) => ids
-                .partition_point(|id| snapshot.sstables[id].clone().first_key().raw_ref() < upper),
+                .partition_point(|id| snapshot.sstables[id].clone().first_key().key_ref() < upper),
             Bound::Unbounded => ids.len(),
         };
 
@@ -729,13 +732,16 @@ impl LsmStorageInner {
         let mut sst_iters = Vec::with_capacity(l0_sst.len());
         for table in l0_sst {
             let iter = match lower {
-                Bound::Included(key) => {
-                    SsTableIterator::create_and_seek_to_key(table, KeySlice::from_slice(key))?
-                }
+                Bound::Included(key) => SsTableIterator::create_and_seek_to_key(
+                    table,
+                    KeySlice::from_slice(key, TS_RANGE_BEGIN),
+                )?,
                 Bound::Excluded(key) => {
-                    let mut iter =
-                        SsTableIterator::create_and_seek_to_key(table, KeySlice::from_slice(key))?;
-                    if iter.is_valid() && iter.key().raw_ref() == key {
+                    let mut iter = SsTableIterator::create_and_seek_to_key(
+                        table,
+                        KeySlice::from_slice(key, TS_RANGE_BEGIN),
+                    )?;
+                    if iter.is_valid() && iter.key().key_ref() == key {
                         iter.next()?;
                     }
                     iter
@@ -759,13 +765,16 @@ impl LsmStorageInner {
         let sst_ids = snapshot.levels[level - 1].1.as_ref();
         let l1_sst = self.filter_level_sst(snapshot, sst_ids, lower, upper);
         let iter = match lower {
-            Bound::Included(key) => {
-                SstConcatIterator::create_and_seek_to_key(l1_sst, KeySlice::from_slice(key))?
-            }
+            Bound::Included(key) => SstConcatIterator::create_and_seek_to_key(
+                l1_sst,
+                KeySlice::from_slice(key, TS_RANGE_BEGIN),
+            )?,
             Bound::Excluded(key) => {
-                let mut iter =
-                    SstConcatIterator::create_and_seek_to_key(l1_sst, KeySlice::from_slice(key))?;
-                if iter.is_valid() && iter.key().raw_ref() == key {
+                let mut iter = SstConcatIterator::create_and_seek_to_key(
+                    l1_sst,
+                    KeySlice::from_slice(key, TS_RANGE_BEGIN),
+                )?;
+                if iter.is_valid() && iter.key().key_ref() == key {
                     iter.next()?;
                 }
                 iter
