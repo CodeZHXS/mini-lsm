@@ -148,7 +148,7 @@ impl MemTable {
     /// Get a value by key.
     pub fn get(&self, key: KeySlice) -> Option<Bytes> {
         let key_bytes = KeyBytes::from_bytes_with_ts(
-            Bytes::from_static(unsafe { std::mem::transmute(key.key_ref()) }),
+            Bytes::from_static(unsafe { std::mem::transmute::<&[u8], &[u8]>(key.key_ref()) }),
             key.ts(),
         );
         self.map.get(&key_bytes).map(|entry| entry.value().clone())
