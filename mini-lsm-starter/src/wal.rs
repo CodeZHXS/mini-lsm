@@ -25,7 +25,8 @@ use bytes::{Buf, BufMut, Bytes};
 use crossbeam_skiplist::SkipMap;
 use parking_lot::Mutex;
 
-use crate::block::{SIZEOF_U16, SIZEOF_U32};
+use crate::block::{SIZEOF_U16, SIZEOF_U32, SIZEOF_U64};
+use crate::key::{KeyBytes, KeySlice};
 
 pub struct Wal {
     file: Arc<Mutex<BufWriter<File>>>,
@@ -45,7 +46,7 @@ impl Wal {
         })
     }
 
-    pub fn recover(path: impl AsRef<Path>, skiplist: &SkipMap<Bytes, Bytes>) -> Result<Self> {
+    pub fn recover(path: impl AsRef<Path>, skiplist: &SkipMap<KeyBytes, Bytes>) -> Result<Self> {
         let mut file = File::options()
             .read(true)
             .append(true)
@@ -63,6 +64,9 @@ impl Wal {
             let key = rbuf.copy_to_bytes(key_len);
             hasher.write(&key);
 
+            let ts = rbuf.get_u64();
+            hasher.write_u64(ts);
+
             let value_len = rbuf.get_u16() as usize;
             hasher.write_u16(value_len as u16);
 
@@ -74,26 +78,30 @@ impl Wal {
                 bail!("checksum mismatch");
             }
 
-            skiplist.insert(key, value);
+            skiplist.insert(KeyBytes::from_bytes_with_ts(key, ts), value);
         }
         Ok(Self {
             file: Arc::new(Mutex::new(BufWriter::new(file))),
         })
     }
 
-    pub fn put(&self, key: &[u8], value: &[u8]) -> Result<()> {
-        let key_len = key.len();
+    pub fn put(&self, key: KeySlice, value: &[u8]) -> Result<()> {
+        let key_len = key.key_len();
         let value_len = value.len();
 
-        // key_len(2) + key(key_len) + value_len(2) + value(value_len) + checksum(4)
-        let mut buf = Vec::with_capacity(2 * SIZEOF_U16 + key_len + value_len + SIZEOF_U32);
+        // key_len(2) + key(key_len) + ts(8) + value_len(2) + value(value_len) + checksum(4)
+        let mut buf =
+            Vec::with_capacity(2 * SIZEOF_U16 + key_len + value_len + SIZEOF_U64 + SIZEOF_U32);
         let mut hasher = crc32fast::Hasher::new();
 
         buf.put_u16(key_len as u16);
         hasher.write_u16(key_len as u16);
 
-        buf.put_slice(key);
-        hasher.write(key);
+        buf.put_slice(key.key_ref());
+        hasher.write(key.key_ref());
+
+        buf.put_u64(key.ts());
+        hasher.write_u64(key.ts());
 
         buf.put_u16(value_len as u16);
         hasher.write_u16(value_len as u16);

@@ -311,35 +311,55 @@ impl LsmStorageInner {
     fn compact_result_from_iter(
         &self,
         mut iter: impl for<'a> StorageIterator<KeyType<'a> = KeySlice<'a>>,
-        is_bottom_level: bool,
+        _is_bottom_level: bool,
     ) -> Result<Vec<Arc<SsTable>>> {
+        let is_bottom_level = false;
         let mut ans = vec![];
         let mut builder = None;
+        let mut last_key = Vec::<u8>::new();
 
         while iter.is_valid() {
             if is_bottom_level && iter.value().is_empty() {
                 iter.next()?;
                 continue;
             }
+
             if builder.is_none() {
                 builder = Some(SsTableBuilder::new(self.options.block_size));
             }
-            let builder_inner = builder.as_mut().unwrap();
-            builder_inner.add(iter.key(), iter.value());
-            if builder_inner.estimated_size() >= self.options.target_sst_size {
-                let builder = builder.take().unwrap();
-                let id = self.next_sst_id();
-                let table =
-                    builder.build(id, Some(self.block_cache.clone()), self.path_of_sst(id))?;
-                ans.push(Arc::new(table));
+
+            let current_key = iter.key().key_ref();
+            let is_same_key = last_key == current_key;
+
+            let mut builder_inner = builder.as_mut().unwrap();
+            if !is_same_key {
+                if builder_inner.estimated_size() >= self.options.target_sst_size {
+                    let old_builder = builder.take().unwrap();
+                    let id = self.next_sst_id();
+                    let table = old_builder.build(
+                        id,
+                        Some(self.block_cache.clone()),
+                        self.path_of_sst(id),
+                    )?;
+                    ans.push(Arc::new(table));
+                    builder = Some(SsTableBuilder::new(self.options.block_size));
+                    builder_inner = builder.as_mut().unwrap();
+                }
+
+                last_key.clear();
+                last_key.extend(current_key);
             }
+
+            builder_inner.add(iter.key(), iter.value());
+
             iter.next()?;
         }
 
         if builder.is_some() {
-            let builder = builder.take().unwrap();
+            let old_builder = builder.take().unwrap();
             let id = self.next_sst_id();
-            let table = builder.build(id, Some(self.block_cache.clone()), self.path_of_sst(id))?;
+            let table =
+                old_builder.build(id, Some(self.block_cache.clone()), self.path_of_sst(id))?;
             ans.push(Arc::new(table));
         }
         Ok(ans)

@@ -36,6 +36,7 @@ pub struct LsmIterator {
     inner: LsmIteratorInner,
     end_bound: Bound<Bytes>,
     is_valid: bool,
+    prev_key: Vec<u8>,
 }
 
 impl LsmIterator {
@@ -44,8 +45,10 @@ impl LsmIterator {
             is_valid: iter.is_valid(),
             inner: iter,
             end_bound: map_bound(end_bound),
+            prev_key: vec![],
         };
-        lsm_iter.move_skip_tombstone()?;
+        lsm_iter.move_to_next_key()?;
+        lsm_iter.is_valid = lsm_iter.inner.is_valid();
         Ok(lsm_iter)
     }
 
@@ -63,9 +66,21 @@ impl LsmIterator {
         Ok(())
     }
 
-    fn move_skip_tombstone(&mut self) -> Result<()> {
-        while self.is_valid() && self.value().is_empty() {
-            self.next_inner()?;
+    fn move_to_next_key(&mut self) -> Result<()> {
+        loop {
+            while self.inner.is_valid() && self.inner.key().key_ref() == self.prev_key {
+                self.next_inner()?;
+            }
+
+            if !self.inner.is_valid() {
+                break;
+            }
+
+            self.prev_key.clear();
+            self.prev_key.extend(self.inner.key().key_ref());
+            if !self.inner.value().is_empty() {
+                break;
+            }
         }
         Ok(())
     }
@@ -88,7 +103,7 @@ impl StorageIterator for LsmIterator {
 
     fn next(&mut self) -> Result<()> {
         self.next_inner()?;
-        self.move_skip_tombstone()?;
+        self.move_to_next_key()?;
         Ok(())
     }
 

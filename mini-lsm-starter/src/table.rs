@@ -24,6 +24,7 @@ use std::sync::Arc;
 use anyhow::{anyhow, bail, Ok, Result};
 pub use builder::SsTableBuilder;
 use bytes::{Buf, BufMut};
+use farmhash::hash32;
 pub use iterator::SsTableIterator;
 
 use crate::block::{Block, SIZEOF_U16, SIZEOF_U32};
@@ -225,6 +226,15 @@ impl SsTable {
             bloom: None,
             max_ts: 0,
         }
+    }
+
+    pub fn has_key(&self, key: &[u8]) -> bool {
+        if let Some(bloom) = &self.bloom {
+            if !bloom.may_contain(hash32(key)) {
+                return false;
+            }
+        }
+        self.overlap(Bound::Included(key), Bound::Included(key))
     }
 
     pub fn overlap(&self, lower: Bound<&[u8]>, upper: Bound<&[u8]>) -> bool {
