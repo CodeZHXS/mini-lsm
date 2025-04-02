@@ -22,7 +22,7 @@ use crate::{
         concat_iterator::SstConcatIterator, merge_iterator::MergeIterator,
         two_merge_iterator::TwoMergeIterator, StorageIterator,
     },
-    mem_table::{map_bound, MemTableIterator},
+    mem_table::MemTableIterator,
     table::SsTableIterator,
 };
 
@@ -36,15 +36,21 @@ pub struct LsmIterator {
     inner: LsmIteratorInner,
     end_bound: Bound<Bytes>,
     is_valid: bool,
+    read_ts: u64,
     prev_key: Vec<u8>,
 }
 
 impl LsmIterator {
-    pub(crate) fn new(iter: LsmIteratorInner, end_bound: Bound<&[u8]>) -> Result<Self> {
+    pub(crate) fn new(
+        iter: LsmIteratorInner,
+        end_bound: Bound<Bytes>,
+        read_ts: u64,
+    ) -> Result<Self> {
         let mut lsm_iter = Self {
             is_valid: iter.is_valid(),
             inner: iter,
-            end_bound: map_bound(end_bound),
+            end_bound,
+            read_ts,
             prev_key: vec![],
         };
         lsm_iter.move_to_next_key()?;
@@ -71,13 +77,20 @@ impl LsmIterator {
             while self.inner.is_valid() && self.inner.key().key_ref() == self.prev_key {
                 self.next_inner()?;
             }
+            if !self.inner.is_valid() {
+                break;
+            }
 
+            while self.inner.is_valid() && self.read_ts < self.inner.key().ts() {
+                self.next_inner()?;
+            }
             if !self.inner.is_valid() {
                 break;
             }
 
             self.prev_key.clear();
             self.prev_key.extend(self.inner.key().key_ref());
+
             if !self.inner.value().is_empty() {
                 break;
             }

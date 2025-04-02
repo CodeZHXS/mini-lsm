@@ -38,6 +38,7 @@ pub struct SsTableBuilder {
     pub(crate) meta: Vec<BlockMeta>,
     block_size: usize,
     key_hashes: Vec<u32>,
+    max_ts: u64,
 }
 
 impl SsTableBuilder {
@@ -51,6 +52,7 @@ impl SsTableBuilder {
             meta: vec![],
             block_size,
             key_hashes: vec![],
+            max_ts: 0,
         }
     }
 
@@ -59,13 +61,14 @@ impl SsTableBuilder {
     /// Note: You should split a new block when the current block is full.(`std::mem::replace` may
     /// be helpful here)
     pub fn add(&mut self, key: KeySlice, value: &[u8]) {
+        self.key_hashes.push(hash32(key.key_ref()));
+        self.max_ts = self.max_ts.max(key.ts());
+
         if !self.builder.add(key, value) {
             self.add_block_data();
             let ok = self.builder.add(key, value);
             assert!(ok)
         }
-
-        self.key_hashes.push(hash32(key.key_ref()));
     }
 
     fn add_block_data(&mut self) {
@@ -102,7 +105,7 @@ impl SsTableBuilder {
 
         let mut buf = self.data;
         let block_meta_offset = buf.len();
-        BlockMeta::encode_block_meta(&self.meta, &mut buf);
+        BlockMeta::encode_block_meta(&self.meta, self.max_ts, &mut buf);
         buf.put_u32(block_meta_offset as u32);
 
         let bloom_offset = buf.len();
@@ -124,7 +127,7 @@ impl SsTableBuilder {
             first_key,
             last_key,
             bloom: Some(bloom),
-            max_ts: 0,
+            max_ts: self.max_ts,
         })
     }
 

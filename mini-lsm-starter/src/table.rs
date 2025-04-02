@@ -27,7 +27,7 @@ use bytes::{Buf, BufMut};
 use farmhash::hash32;
 pub use iterator::SsTableIterator;
 
-use crate::block::{Block, SIZEOF_U16, SIZEOF_U32};
+use crate::block::{Block, SIZEOF_U16, SIZEOF_U32, SIZEOF_U64};
 use crate::key::{KeyBytes, KeySlice};
 use crate::lsm_storage::BlockCache;
 
@@ -47,7 +47,7 @@ impl BlockMeta {
     /// Encode block meta to a buffer.
     /// You may add extra fields to the buffer,
     /// in order to help keep track of `first_key` when decoding from the same buffer in the future.
-    pub fn encode_block_meta(block_meta: &[BlockMeta], buf: &mut Vec<u8>) {
+    pub fn encode_block_meta(block_meta: &[BlockMeta], max_ts: u64, buf: &mut Vec<u8>) {
         let start = buf.len();
         let n = block_meta.len();
         // offset(4) + first_key_len(2) + last_key_len(2)
@@ -57,10 +57,9 @@ impl BlockMeta {
             let last_key_len = meta.last_key.raw_len();
             reserve_size += first_key_len + last_key_len;
         }
-        // num_of_block(4) + checksum(4)
-        reserve_size += 2 * SIZEOF_U32;
+        // num_of_block(4) + checksum(4) + max_ts(8)
+        reserve_size += 2 * SIZEOF_U32 + SIZEOF_U64;
 
-        let original_len = buf.len();
         buf.reserve(reserve_size);
 
         buf.put_u32(n as u32);
@@ -76,16 +75,18 @@ impl BlockMeta {
             buf.put_u64(meta.last_key.ts());
         }
 
+        buf.put_u64(max_ts);
+
         let checksum = crc32fast::hash(buf[start..].as_ref());
         buf.put_u32(checksum);
 
-        if buf.len() - original_len != reserve_size {
+        if buf.len() - start != reserve_size {
             panic!("reserver_size not match")
         }
     }
 
     /// Decode block meta from a buffer.
-    pub fn decode_block_meta(mut buf: impl Buf) -> Result<Vec<BlockMeta>> {
+    pub fn decode_block_meta(mut buf: impl Buf) -> Result<(Vec<BlockMeta>, u64)> {
         let checksum = crc32fast::hash(&buf.chunk()[..buf.remaining() - SIZEOF_U32]);
 
         let num_of_blocks = buf.get_u32() as usize;
@@ -109,11 +110,13 @@ impl BlockMeta {
             });
         }
 
+        let max_ts = buf.get_u64();
+
         if buf.get_u32() != checksum {
             bail!("meta checksum mismatched");
         }
 
-        Ok(block_meta)
+        Ok((block_meta, max_ts))
     }
 }
 
@@ -190,7 +193,7 @@ impl SsTable {
         let block_meta_offset = block_meta_offset_raw.as_slice().get_u32() as u64;
         let block_meta_len = bloom_offset - block_meta_offset - SIZEOF_U32 as u64;
         let block_meta_raw = file.read(block_meta_offset, block_meta_len)?;
-        let block_meta = BlockMeta::decode_block_meta(block_meta_raw.as_slice())?;
+        let (block_meta, max_ts) = BlockMeta::decode_block_meta(block_meta_raw.as_slice())?;
 
         let first_key = block_meta.first().unwrap().first_key.clone();
         let last_key = block_meta.last().unwrap().last_key.clone();
@@ -204,7 +207,7 @@ impl SsTable {
             first_key,
             last_key,
             bloom: Some(bloom),
-            max_ts: 0,
+            max_ts,
         })
     }
 
