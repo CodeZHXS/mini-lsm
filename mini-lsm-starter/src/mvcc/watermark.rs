@@ -12,38 +12,55 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::collections::BTreeMap;
+use std::collections::VecDeque;
 
 pub struct Watermark {
-    readers: BTreeMap<u64, usize>,
+    readers: VecDeque<(u64, usize)>,
+    active_ts: usize,
 }
 
 impl Watermark {
     pub fn new() -> Self {
         Self {
-            readers: BTreeMap::new(),
+            readers: VecDeque::new(),
+            active_ts: 0,
         }
     }
 
     pub fn add_reader(&mut self, ts: u64) {
-        *self.readers.entry(ts).or_insert(0) += 1;
+        if let Some((back_ts, back_cnt)) = self.readers.back_mut() {
+            if *back_ts == ts {
+                *back_cnt += 1;
+            } else {
+                self.readers.push_back((ts, 1));
+            }
+        } else {
+            self.readers.push_back((ts, 1));
+        }
+
+        if self.readers.back().unwrap().1 == 1 {
+            self.active_ts += 1;
+        }
     }
 
     pub fn remove_reader(&mut self, ts: u64) {
-        if let Some(count) = self.readers.get_mut(&ts) {
-            if *count > 1 {
-                *count -= 1;
-            } else {
-                self.readers.remove(&ts);
-            }
+        let index = ts - self.readers.front().unwrap().0;
+        self.readers[index as usize].1 -= 1;
+
+        if self.readers[index as usize].1 == 0 {
+            self.active_ts -= 1;
+        }
+
+        while !self.readers.is_empty() && self.readers.front().unwrap().1 == 0 {
+            self.readers.pop_front();
         }
     }
 
     pub fn num_retained_snapshots(&self) -> usize {
-        self.readers.len()
+        self.active_ts
     }
 
     pub fn watermark(&self) -> Option<u64> {
-        self.readers.first_key_value().map(|(k, _)| *k)
+        self.readers.front().map(|(ts, _)| *ts)
     }
 }
