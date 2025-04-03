@@ -54,7 +54,6 @@ impl LsmIterator {
             prev_key: vec![],
         };
         lsm_iter.move_to_next_key()?;
-        lsm_iter.is_valid = lsm_iter.inner.is_valid();
         Ok(lsm_iter)
     }
 

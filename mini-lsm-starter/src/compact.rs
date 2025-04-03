@@ -311,25 +311,44 @@ impl LsmStorageInner {
     fn compact_result_from_iter(
         &self,
         mut iter: impl for<'a> StorageIterator<KeyType<'a> = KeySlice<'a>>,
-        _is_bottom_level: bool,
+        is_bottom_level: bool,
     ) -> Result<Vec<Arc<SsTable>>> {
-        let is_bottom_level = false;
         let mut ans = vec![];
         let mut builder = None;
         let mut last_key = Vec::<u8>::new();
+        let watermark = self.mvcc().watermark();
+        let mut has_ts_leq_watermark = false;
 
         while iter.is_valid() {
-            if is_bottom_level && iter.value().is_empty() {
-                iter.next()?;
-                continue;
-            }
-
             if builder.is_none() {
                 builder = Some(SsTableBuilder::new(self.options.block_size));
             }
 
             let current_key = iter.key().key_ref();
             let is_same_key = last_key == current_key;
+
+            let current_ts = iter.key().ts();
+            let is_ts_leq_watermark = current_ts <= watermark;
+
+            let is_tombstone = iter.value().is_empty();
+
+            if !is_same_key {
+                last_key.clear();
+                last_key.extend(current_key);
+                has_ts_leq_watermark = false;
+            }
+
+            if has_ts_leq_watermark {
+                iter.next()?;
+                continue;
+            }
+
+            has_ts_leq_watermark = is_ts_leq_watermark;
+
+            if is_bottom_level && is_ts_leq_watermark && is_tombstone {
+                iter.next()?;
+                continue;
+            }
 
             let mut builder_inner = builder.as_mut().unwrap();
             if !is_same_key {
@@ -345,13 +364,9 @@ impl LsmStorageInner {
                     builder = Some(SsTableBuilder::new(self.options.block_size));
                     builder_inner = builder.as_mut().unwrap();
                 }
-
-                last_key.clear();
-                last_key.extend(current_key);
             }
 
             builder_inner.add(iter.key(), iter.value());
-
             iter.next()?;
         }
 

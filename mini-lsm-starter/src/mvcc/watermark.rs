@@ -45,6 +45,7 @@ impl Watermark {
 
     pub fn remove_reader(&mut self, ts: u64) {
         let index = ts - self.readers.front().unwrap().0;
+        assert!(index < self.readers.len() as u64);
         self.readers[index as usize].1 -= 1;
 
         if self.readers[index as usize].1 == 0 {

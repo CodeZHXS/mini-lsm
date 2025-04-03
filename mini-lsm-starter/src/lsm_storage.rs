@@ -518,7 +518,9 @@ impl LsmStorageInner {
     /// Write a batch of data into the storage. Implement in week 2 day 7.
     pub fn write_batch<T: AsRef<[u8]>>(&self, batch: &[WriteBatchRecord<T>]) -> Result<()> {
         let lck = self.mvcc().write_lock.lock();
-        let ts = self.mvcc().latest_commit_ts() + 1;
+        let read_ts = self.mvcc().latest_commit_ts();
+        let commit_ts = read_ts + 1;
+        self.mvcc().ts.lock().1.add_reader(read_ts);
         for record in batch {
             let new_approximate_size = match record {
                 WriteBatchRecord::Put(key, value) => {
@@ -527,19 +529,20 @@ impl LsmStorageInner {
                     self.state
                         .read()
                         .memtable
-                        .put_and_get_size(KeySlice::from_slice(key, ts), value)
+                        .put_and_get_size(KeySlice::from_slice(key, commit_ts), value)
                 }
                 WriteBatchRecord::Del(key) => {
                     let key = key.as_ref();
                     self.state
                         .read()
                         .memtable
-                        .put_and_get_size(KeySlice::from_slice(key, ts), b"")
+                        .put_and_get_size(KeySlice::from_slice(key, commit_ts), b"")
                 }
             };
             self.try_freeze_memtable(new_approximate_size)?;
         }
-        self.mvcc().update_commit_ts(ts);
+        self.mvcc().update_commit_ts(commit_ts);
+        self.mvcc().ts.lock().1.remove_reader(read_ts);
         Ok(())
     }
 
