@@ -19,6 +19,12 @@ pub struct Watermark {
     active_ts: usize,
 }
 
+impl Default for Watermark {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Watermark {
     pub fn new() -> Self {
         Self {

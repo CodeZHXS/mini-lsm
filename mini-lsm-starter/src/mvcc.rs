@@ -74,7 +74,7 @@ impl LsmMvccInner {
         let read_ts = ts.0;
         ts.1.add_reader(read_ts);
         Arc::new(Transaction {
-            read_ts: read_ts,
+            read_ts,
             inner,
             local_storage: Arc::new(SkipMap::new()),
             committed: Arc::new(AtomicBool::new(false)),

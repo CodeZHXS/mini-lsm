@@ -351,19 +351,14 @@ impl LsmStorageInner {
             }
 
             let mut builder_inner = builder.as_mut().unwrap();
-            if !is_same_key {
-                if builder_inner.estimated_size() >= self.options.target_sst_size {
-                    let old_builder = builder.take().unwrap();
-                    let id = self.next_sst_id();
-                    let table = old_builder.build(
-                        id,
-                        Some(self.block_cache.clone()),
-                        self.path_of_sst(id),
-                    )?;
-                    ans.push(Arc::new(table));
-                    builder = Some(SsTableBuilder::new(self.options.block_size));
-                    builder_inner = builder.as_mut().unwrap();
-                }
+            if !is_same_key && builder_inner.estimated_size() >= self.options.target_sst_size {
+                let old_builder = builder.take().unwrap();
+                let id = self.next_sst_id();
+                let table =
+                    old_builder.build(id, Some(self.block_cache.clone()), self.path_of_sst(id))?;
+                ans.push(Arc::new(table));
+                builder = Some(SsTableBuilder::new(self.options.block_size));
+                builder_inner = builder.as_mut().unwrap();
             }
 
             builder_inner.add(iter.key(), iter.value());
