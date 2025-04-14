@@ -12,9 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#![allow(unused_variables)] // TODO(you): remove this lint after implementing this mod
-#![allow(dead_code)] // TODO(you): remove this lint after implementing this mod
-
 use std::collections::{BTreeSet, HashMap};
 use std::fs::File;
 use std::ops::Bound;
@@ -364,7 +361,7 @@ impl LsmStorageInner {
             for id in state
                 .l0_sstables
                 .iter()
-                .chain(state.levels.iter().flat_map(|(id, ids)| ids))
+                .chain(state.levels.iter().flat_map(|(_, ids)| ids))
             {
                 let sst = SsTable::open(
                     *id,
@@ -517,7 +514,7 @@ impl LsmStorageInner {
 
     /// Write a batch of data into the storage. Implement in week 2 day 7.
     pub fn write_batch<T: AsRef<[u8]>>(&self, batch: &[WriteBatchRecord<T>]) -> Result<()> {
-        let lck = self.mvcc().write_lock.lock();
+        let _lck = self.mvcc().write_lock.lock();
         let commit_ts = self.mvcc().latest_commit_ts() + 1;
 
         for record in batch {
