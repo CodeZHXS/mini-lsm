@@ -35,6 +35,8 @@ use crate::{
     mem_table::map_bound,
 };
 
+use super::CommittedTxnData;
+
 pub struct Transaction {
     pub(crate) read_ts: u64,
     pub(crate) inner: Arc<LsmStorageInner>,
@@ -49,6 +51,8 @@ impl Transaction {
         if self.committed.load(Ordering::SeqCst) {
             panic!("cannot operate on committed txn!");
         }
+
+        self.add_read_set(key);
 
         if let Some(e) = self.local_storage.get(key) {
             if e.value().is_empty() {
@@ -82,6 +86,11 @@ impl Transaction {
     }
 
     pub fn put(&self, key: &[u8], value: &[u8]) {
+        if self.committed.load(Ordering::SeqCst) {
+            panic!("cannot operate on committed txn!");
+        }
+
+        self.add_write_set(key);
         self.local_storage
             .insert(Bytes::copy_from_slice(key), Bytes::copy_from_slice(value));
     }
@@ -91,11 +100,15 @@ impl Transaction {
             panic!("cannot operate on committed txn!");
         }
 
+        self.add_write_set(key);
         self.local_storage
             .insert(Bytes::copy_from_slice(key), Bytes::new());
     }
 
     pub fn commit(&self) -> Result<()> {
+        let mvcc = self.inner.mvcc();
+        let _lock = mvcc.commit_lock.lock();
+
         self.committed
             .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
             .expect("cannot operate on committed txn!");
@@ -113,8 +126,34 @@ impl Transaction {
             .collect::<Vec<WriteBatchRecord<Bytes>>>();
 
         // txn should remove read_ts when committed
-        self.inner.mvcc().ts.lock().1.remove_reader(self.read_ts);
-        self.inner.write_batch(&batch)
+        mvcc.ts.lock().1.remove_reader(self.read_ts);
+        self.inner.write_batch(&batch)?;
+        let commit_ts = mvcc.latest_commit_ts();
+        mvcc.committed_txns.lock().insert(
+            commit_ts,
+            CommittedTxnData {
+                key_hashes: self.key_hashes.,
+                read_ts: self.read_ts,
+                commit_ts,
+            },
+        );
+        Ok(())
+    }
+
+    fn add_read_set(&self, key: &[u8]) {
+        if let Some(mu) = &self.key_hashes {
+            let mut guard = mu.lock();
+            let read_set: &mut HashSet<u32> = &mut guard.1;
+            read_set.insert(farmhash::hash32(key));
+        }
+    }
+
+    fn add_write_set(&self, key: &[u8]) {
+        if let Some(mu) = &self.key_hashes {
+            let mut guard = mu.lock();
+            let write_set: &mut HashSet<u32> = &mut guard.0;
+            write_set.insert(farmhash::hash32(key));
+        }
     }
 }
 
@@ -176,7 +215,7 @@ impl StorageIterator for TxnLocalIterator {
 }
 
 pub struct TxnIterator {
-    _txn: Arc<Transaction>,
+    txn: Arc<Transaction>,
     iter: TwoMergeIterator<TxnLocalIterator, FusedIterator<LsmIterator>>,
 }
 
@@ -185,8 +224,11 @@ impl TxnIterator {
         txn: Arc<Transaction>,
         iter: TwoMergeIterator<TxnLocalIterator, FusedIterator<LsmIterator>>,
     ) -> Result<Self> {
-        let mut iter = Self { _txn: txn, iter };
+        let mut iter = Self { txn, iter };
         iter.move_skip_tombstone()?;
+        if iter.is_valid() {
+            iter.add_read_set(iter.key());
+        }
         Ok(iter)
     }
 
@@ -195,6 +237,10 @@ impl TxnIterator {
             self.next()?;
         }
         Ok(())
+    }
+
+    fn add_read_set(&self, key: &[u8]) {
+        self.txn.add_read_set(key);
     }
 }
 
@@ -218,7 +264,11 @@ impl StorageIterator for TxnIterator {
 
     fn next(&mut self) -> Result<()> {
         self.iter.next()?;
-        self.move_skip_tombstone()
+        self.move_skip_tombstone()?;
+        if self.is_valid() {
+            self.txn.add_read_set(self.key());
+        }
+        Ok(())
     }
 
     fn num_active_iterators(&self) -> usize {

@@ -514,8 +514,9 @@ impl LsmStorageInner {
 
     /// Write a batch of data into the storage. Implement in week 2 day 7.
     pub fn write_batch<T: AsRef<[u8]>>(&self, batch: &[WriteBatchRecord<T>]) -> Result<()> {
-        let _lck = self.mvcc().write_lock.lock();
-        let commit_ts = self.mvcc().latest_commit_ts() + 1;
+        let mvcc = self.mvcc();
+        let _lck = mvcc.write_lock.lock();
+        let commit_ts = mvcc.latest_commit_ts() + 1;
 
         for record in batch {
             let new_approximate_size = match record {
@@ -541,7 +542,7 @@ impl LsmStorageInner {
             };
             self.try_freeze_memtable(new_approximate_size)?;
         }
-        self.mvcc().update_commit_ts(commit_ts);
+        mvcc.update_commit_ts(commit_ts);
         Ok(())
     }
 
